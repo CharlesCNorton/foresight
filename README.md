@@ -1,4 +1,3 @@
-```markdown
 # Foresight: A Friendly Terminal-Based Interface for HeinSight
 
 **Foresight** is a user-friendly, line-based menu script that wraps and extends the functionality of the [HeinSight](https://gitlab.com/heingroup/heinsight4.0) computer vision system for analyzing chemical experiments. It allows you to selectively enable/disable bounding boxes for each class (vessel, solid, residue, empty, homo, hetero), toggle real-time metric overlays (turbidity, color/hue, volume fraction), apply debouncing to reduce flicker, show side-by-side comparisons, and more—all without writing additional code.
