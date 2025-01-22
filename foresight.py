@@ -515,29 +515,23 @@ def handle_toggle_debouncing():
 
 
 def handle_pick_heinsight_dir():
-    """
-    Let user pick directory with heinsight, add to sys.path, re-attempt import.
-    """
     global heinsight_dir
     root = tk.Tk()
     root.withdraw()
-    messagebox.showinfo("Foresight", "Select folder containing 'heinsight/__init__.py' and the models folder.")
+    messagebox.showinfo("Foresight", "Select folder containing 'heinsight.py' and models/")
     chosen_dir = filedialog.askdirectory(title="Select HeinSight folder")
     root.destroy()
 
-    if not chosen_dir:
-        print(ctext("No directory selected for heinsight. Aborting.", color=Fore.RED))
-        return
-    if not os.path.isdir(chosen_dir):
-        print(ctext("The selected path is not a directory. Aborting.", color=Fore.RED))
+    if not chosen_dir or not os.path.isdir(chosen_dir):
+        print(ctext("No valid directory selected for heinsight. Aborting.", color=Fore.RED))
         return
 
-    # Store in global
     heinsight_dir = chosen_dir
-    # Add to sys.path
-    sys.path.append(chosen_dir)
+    sys.path.append(chosen_dir)  # Optionally keep this or remove it.
+
     print(ctext(f"Added to sys.path: {chosen_dir}", color=Fore.GREEN))
 
+    # Now call our new importer
     attempt_import_heinsight()
     if heinsight_module_available:
         print(ctext("HeinSight import succeeded after adding path.", color=Fore.GREEN))
@@ -649,23 +643,41 @@ def open_file_in_viewer(filepath):
 #   ATTEMPT IMPORT heinsight
 # =============================================================================
 
+import importlib.util
+
 def attempt_import_heinsight():
     """
-    Tries to import 'heinsight' and 'HeinSight'. If successful, set heinsight_module_available=True.
+    Attempt to load 'HeinSight' from the file heinsight.py inside the user-chosen 'heinsight_dir'.
+    We bypass normal package imports, so no __init__.py is needed.
     """
-    global heinsight_module_available, HeinSight
-    if heinsight_module_available and HeinSight is not None:
-        return  # Already imported
+    global heinsight_module_available, HeinSight, heinsight_dir
+
+    if not heinsight_dir:
+        print(ctext("No heinsight_dir is set. Cannot import heinsight.py.", color=Fore.RED))
+        heinsight_module_available = False
+        HeinSight = None
+        return
+
+    heinsight_py = os.path.join(heinsight_dir, "heinsight.py")
+    if not os.path.isfile(heinsight_py):
+        print(ctext(f"Could not find heinsight.py at: {heinsight_py}", color=Fore.RED))
+        heinsight_module_available = False
+        HeinSight = None
+        return
 
     try:
-        from heinsight import HeinSight as HS
-        HeinSight = HS
+        spec = importlib.util.spec_from_file_location("heinsight_module", heinsight_py)
+        heinsight_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(heinsight_module)
+
+        # Now pull out the HeinSight class
+        HeinSight = heinsight_module.HeinSight
         heinsight_module_available = True
-        print(ctext("HeinSight import successful.", color=Fore.GREEN))
-    except ImportError as e:
-        print(ctext("ERROR: Could not import 'HeinSight' from 'heinsight'.", color=Fore.RED))
-        print(ctext("Use 'HeinSight Management' to pick the directory.", color=Fore.YELLOW))
-        print(f"Details: {e}")
+        print(ctext("HeinSight import (via direct file load) successful.", color=Fore.GREEN))
+
+    except Exception as e:
+        print(ctext("ERROR: Could not load HeinSight from heinsight.py.", color=Fore.RED))
+        print(ctext(f"Details: {e}", color=Fore.YELLOW))
         heinsight_module_available = False
         HeinSight = None
 
