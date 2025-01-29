@@ -57,13 +57,71 @@ def ctext(text, color=None, style=None):
 
 
 # -------------------------------------------------------------------------
-# GLOBAL STATE
+#  FIRST: Force selection of the "heinsight4.0" folder and verify structure
 # -------------------------------------------------------------------------
-heinsight_module_available = False  # do we have 'heinsight' importable?
-HeinSight = None                   # the actual class we import
-heinsight_obj = None               # instance of HeinSight for YOLO models
-heinsight_dir = None               # user-chosen directory containing heinsight + models
+heinsight_dir = None       # The path to ".../heinsight4.0/heinsight" subfolder
+HeinSight = None           # The actual class from heinsight.py
+heinsight_obj = None       # HeinSight instance
+heinsight_module_available = False
 
+def enforce_heinsight_directory():
+    """
+    Force the user to select the folder containing 'heinsight4.0',
+    then verify we can find 'heinsight/heinsight.py'.
+    """
+    global heinsight_dir
+
+    # Use tkinter to pick the "heinsight4.0" folder
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showinfo("Foresight", "Select the 'heinsight4.0' folder.")
+    chosen_dir = filedialog.askdirectory(title="Select HeinSight Root Folder (heinsight4.0)")
+    root.destroy()
+
+    if not chosen_dir or not os.path.isdir(chosen_dir):
+        print(ctext("ERROR: No valid 'heinsight4.0' directory selected.", color=Fore.RED))
+        sys.exit(1)
+
+    # we expect a subfolder: chosen_dir/heinsight/heinsight.py
+    sub_heinsight = os.path.join(chosen_dir, "heinsight")
+    heinsight_py = os.path.join(sub_heinsight, "heinsight.py")
+    if not os.path.isfile(heinsight_py):
+        print(ctext("ERROR: 'heinsight4.0' folder missing 'heinsight/heinsight.py'.", color=Fore.RED))
+        print(ctext(f"Expected path: {heinsight_py}", color=Fore.RED))
+        sys.exit(1)
+
+    # Looks good => store that subfolder in a global
+    heinsight_dir = sub_heinsight
+    # Insert at front of sys.path so Python sees it first
+    sys.path.insert(0, heinsight_dir)
+    print(ctext(f"HeinSight folder set to: {heinsight_dir}", color=Fore.GREEN))
+
+
+import importlib.util
+
+def attempt_import_heinsight():
+    """
+    Attempt to load 'HeinSight' from `heinsight.py`.
+    """
+    global heinsight_module_available, HeinSight, heinsight_dir
+
+    heinsight_py = os.path.join(heinsight_dir, "heinsight.py")
+    try:
+        spec = importlib.util.spec_from_file_location("heinsight", heinsight_py)
+        heinsight_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(heinsight_module)
+
+        HeinSight = heinsight_module.HeinSight
+        heinsight_module_available = True
+        print(ctext("SUCCESS: HeinSight imported successfully.", color=Fore.GREEN))
+    except Exception as e:
+        print(ctext(f"ERROR importing HeinSight: {e}", color=Fore.RED))
+        sys.exit(1)
+
+
+# -------------------------------------------------------------------------
+#  GLOBAL STATE FOR YOUR MENU/FEATURES
+# -------------------------------------------------------------------------
 thresholds = None                  # (turb, color, volume, conf)
 input_file = None                  # path to user-chosen image or video
 output_dir = None                  # path to user-chosen output directory
@@ -100,19 +158,15 @@ debounce_map = {}
 
 def main():
     """
-    Main entry point. We now use a hierarchical menu with submenus:
-       1) Setup & Run Detection
-       2) Overlays & Thresholds
-       3) HeinSight Management
-       4) Display Current Configuration
-       5) Quit
+    Main entry point after HeinSight is confirmed to be imported.
+    We show a hierarchical menu with submenus.
     """
     print(ctext("=== Foresight Terminal Menu ===", color=Fore.CYAN, style=Style.BRIGHT))
     print("Offers a line-based menu for controlling HeinSight detection with advanced overlays, "
           "side-by-side output, annotation font adjustments, T/C/V debouncing, per-class toggles, etc.\n")
 
-    # Attempt to import heinsight at start (in case it's already in sys.path)
-    attempt_import_heinsight()
+    # If we want to auto-attempt model loading right away, do so here
+    # Or we can wait for user to pick "Reload YOLO Models" from the menu
 
     while True:
         show_main_menu()
@@ -137,9 +191,6 @@ def main():
 # =============================================================================
 
 def show_main_menu():
-    """
-    Print the top-level menu with color formatting.
-    """
     print(ctext("\n---------------------------------------", color=Fore.CYAN))
     print(ctext("Foresight Main Menu - Choose an option:", color=Fore.GREEN))
     print(ctext("1) ", color=Fore.YELLOW) + "Setup & Run Detection")
@@ -155,10 +206,6 @@ def show_main_menu():
 # =============================================================================
 
 def submenu_setup_and_run():
-    """
-    Submenu for picking input file, output directory, setting thresholds,
-    toggling auto-open, and actually running detection.
-    """
     while True:
         print(ctext("\n=== Setup & Run Detection ===", color=Fore.GREEN, style=Style.BRIGHT))
         print(ctext("1) ", color=Fore.YELLOW) + f"Pick Input File (current: {input_file if input_file else 'NONE'})")
@@ -190,10 +237,6 @@ def submenu_setup_and_run():
 # =============================================================================
 
 def submenu_overlays_and_thresholds():
-    """
-    Submenu for toggling advanced overlay, side-by-side output, annotation font size,
-    top-left bounding box list, color patch, debouncing, and per-class/per-metric toggles.
-    """
     while True:
         print(ctext("\n=== Overlays & Thresholds ===", color=Fore.GREEN, style=Style.BRIGHT))
         print(ctext("1) ", color=Fore.YELLOW) + f"Toggle Advanced Overlay (T/C/V) (currently: {'ON' if advanced_overlay else 'OFF'})")
@@ -230,18 +273,11 @@ def submenu_overlays_and_thresholds():
 
 
 def handle_toggle_side_by_side():
-    """
-    Toggle side-by-side display for annotated vs. original.
-    """
     global side_by_side
     side_by_side = not side_by_side
     print(ctext(f"Side-by-Side is now {'ON' if side_by_side else 'OFF'}.", color=Fore.GREEN))
 
-
 def handle_set_font_scale():
-    """
-    Prompt for a new annotation font scale.
-    """
     global annotation_font_scale
     val_str = input(ctext(f"Enter new font scale (float), current={annotation_font_scale}: ", color=Fore.YELLOW))
     try:
@@ -251,29 +287,28 @@ def handle_set_font_scale():
     except ValueError:
         print(ctext("Invalid float, no change made.", color=Fore.RED))
 
-
 def handle_toggle_top_left_list():
-    """
-    Toggle listing bounding boxes in top-left corner.
-    """
     global show_top_left_list
     show_top_left_list = not show_top_left_list
     print(ctext(f"Top-Left List is now {'ON' if show_top_left_list else 'OFF'}.", color=Fore.GREEN))
 
-
 def handle_toggle_color_patch():
-    """
-    Toggle color patch for measured hue.
-    """
     global show_color_patch
     show_color_patch = not show_color_patch
     print(ctext(f"Color Patch for Hue is now {'ON' if show_color_patch else 'OFF'}.", color=Fore.GREEN))
 
+def handle_toggle_overlay():
+    global advanced_overlay
+    advanced_overlay = not advanced_overlay
+    print(ctext(f"Advanced overlay is now {'ON' if advanced_overlay else 'OFF'}.", color=Fore.GREEN))
+
+def handle_toggle_debouncing():
+    global debounce_enabled
+    debounce_enabled = not debounce_enabled
+    print(ctext(f"Value Debouncing is now {'ON' if debounce_enabled else 'OFF'}.", color=Fore.GREEN))
+
 
 def submenu_label_visibility():
-    """
-    Submenu to individually toggle bounding boxes/labels for each class.
-    """
     global show_label_vessel, show_label_solid, show_label_residue, show_label_empty
     global show_label_homo, show_label_hetero
 
@@ -313,9 +348,6 @@ def submenu_label_visibility():
 
 
 def submenu_metric_visibility():
-    """
-    Submenu for toggling T/C/V overlays.
-    """
     global show_metric_t, show_metric_c, show_metric_v
 
     while True:
@@ -346,10 +378,6 @@ def submenu_metric_visibility():
 # =============================================================================
 
 def submenu_heinsight_management():
-    """
-    Submenu for picking HeinSight directory (for dynamic import if not found),
-    and reloading YOLO models from that directory.
-    """
     while True:
         print(ctext("\n=== HeinSight Management ===", color=Fore.GREEN, style=Style.BRIGHT))
         print(ctext("1) ", color=Fore.YELLOW) + "Pick HeinSight Directory (for dynamic import)")
@@ -366,15 +394,62 @@ def submenu_heinsight_management():
         else:
             print(ctext("Invalid choice (1-3).", color=Fore.RED))
 
+def handle_pick_heinsight_dir():
+    """
+    Let the user pick a new 'heinsight4.0' folder at runtime (if needed).
+    """
+    global heinsight_dir, heinsight_module_available, HeinSight
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showinfo("Foresight", "Select the 'heinsight4.0' folder.")
+    chosen_dir = filedialog.askdirectory(title="Select HeinSight Root Folder (heinsight4.0)")
+    root.destroy()
+
+    if not chosen_dir or not os.path.isdir(chosen_dir):
+        print(ctext("No valid directory selected for heinsight. Aborting.", color=Fore.RED))
+        return
+
+    # check subfolder
+    sub_heinsight = os.path.join(chosen_dir, "heinsight")
+    heinsight_py = os.path.join(sub_heinsight, "heinsight.py")
+    if not os.path.isfile(heinsight_py):
+        print(ctext("Folder missing 'heinsight/heinsight.py'.", color=Fore.RED))
+        return
+
+    # update
+    heinsight_dir = sub_heinsight
+    sys.path.insert(0, heinsight_dir)
+    print(ctext(f"Added to sys.path: {heinsight_dir}", color=Fore.GREEN))
+
+    attempt_import_heinsight()
+    if heinsight_module_available:
+        print(ctext("HeinSight import succeeded after adding path.", color=Fore.GREEN))
+    else:
+        print(ctext("HeinSight import still failed. Check folder structure.", color=Fore.RED))
+
+def handle_reload_models():
+    global heinsight_obj
+    if not heinsight_module_available or HeinSight is None:
+        print(ctext("ERROR: HeinSight not imported. Use 'Pick HeinSight Directory' first.", color=Fore.RED))
+        return
+    if heinsight_dir is None or not os.path.isdir(heinsight_dir):
+        print(ctext("ERROR: No valid HeinSight directory set.", color=Fore.RED))
+        return
+
+    print(ctext("Reloading YOLO models...", color=Fore.GREEN))
+    heinsight_obj = None
+    loaded_ok = load_heinsight_models()
+    if loaded_ok:
+        print(ctext("Models reloaded successfully.", color=Fore.GREEN))
+    else:
+        print(ctext("Failed to reload models.", color=Fore.RED))
+
 
 # =============================================================================
-#   MENU HANDLERS
+#   MENU HANDLERS (Setup & Run)
 # =============================================================================
 
 def handle_pick_input_file():
-    """
-    Tkinter dialog to pick an image/video. Store in input_file if valid.
-    """
     global input_file
     root = tk.Tk()
     root.withdraw()
@@ -394,11 +469,7 @@ def handle_pick_input_file():
     else:
         print(ctext("No valid file selected. Input file not changed.", color=Fore.RED))
 
-
 def handle_pick_output_directory():
-    """
-    Tkinter dialog to pick a directory for saving annotated output.
-    """
     global output_dir
     root = tk.Tk()
     root.withdraw()
@@ -412,11 +483,7 @@ def handle_pick_output_directory():
     else:
         print(ctext("No valid directory selected. Output directory not changed.", color=Fore.RED))
 
-
 def handle_set_thresholds():
-    """
-    Prompt user for numeric thresholds. If blank or invalid, defaults are used.
-    """
     global thresholds
     print(ctext("\n=== Set or Update Thresholds ===", color=Fore.GREEN, style=Style.BRIGHT))
     defaults = {"turb": 50.0, "col": 20.0, "vol": 0.1, "conf": 0.4}
@@ -441,19 +508,12 @@ def handle_set_thresholds():
 
 
 def handle_toggle_auto_open():
-    """
-    Toggle auto_open_output.
-    """
     global auto_open_output
     auto_open_output = not auto_open_output
     print(ctext(f"Auto-Open Output is now {'ON' if auto_open_output else 'OFF'}.", color=Fore.GREEN))
 
 
 def handle_run_detection():
-    """
-    Runs detection on the chosen input_file, writes annotated output to output_dir or fallback,
-    optionally side-by-side, auto-opening if user toggled it, with debouncing if enabled.
-    """
     global input_file, output_dir, heinsight_obj, thresholds
     if not heinsight_module_available or HeinSight is None:
         print(ctext("ERROR: HeinSight is not imported. Pick the directory under 'HeinSight Management'.", color=Fore.RED))
@@ -496,204 +556,11 @@ def handle_run_detection():
         traceback.print_exc()
 
 
-def handle_toggle_overlay():
-    """
-    Toggle advanced_overlay.
-    """
-    global advanced_overlay
-    advanced_overlay = not advanced_overlay
-    print(ctext(f"Advanced overlay is now {'ON' if advanced_overlay else 'OFF'}.", color=Fore.GREEN))
-
-
-def handle_toggle_debouncing():
-    """
-    Toggle the global 'debounce_enabled' setting.
-    """
-    global debounce_enabled
-    debounce_enabled = not debounce_enabled
-    print(ctext(f"Value Debouncing is now {'ON' if debounce_enabled else 'OFF'}.", color=Fore.GREEN))
-
-
-def handle_pick_heinsight_dir():
-    global heinsight_dir
-    root = tk.Tk()
-    root.withdraw()
-    messagebox.showinfo("Foresight", "Select folder containing 'heinsight.py' and models/")
-    chosen_dir = filedialog.askdirectory(title="Select HeinSight folder")
-    root.destroy()
-
-    if not chosen_dir or not os.path.isdir(chosen_dir):
-        print(ctext("No valid directory selected for heinsight. Aborting.", color=Fore.RED))
-        return
-
-    heinsight_dir = chosen_dir
-    sys.path.append(chosen_dir)  # Optionally keep this or remove it.
-
-    print(ctext(f"Added to sys.path: {chosen_dir}", color=Fore.GREEN))
-
-    # Now call our new importer
-    attempt_import_heinsight()
-    if heinsight_module_available:
-        print(ctext("HeinSight import succeeded after adding path.", color=Fore.GREEN))
-    else:
-        print(ctext("HeinSight import still failed. Check folder structure.", color=Fore.RED))
-
-
-def handle_reload_models():
-    """
-    Reload YOLO models if heinsight is imported and we have a directory set.
-    """
-    global heinsight_obj
-    if not heinsight_module_available or HeinSight is None:
-        print(ctext("ERROR: HeinSight is not available. Pick the directory first.", color=Fore.RED))
-        return
-    if heinsight_dir is None or not os.path.isdir(heinsight_dir):
-        print(ctext("ERROR: No valid HeinSight directory set. Pick it first.", color=Fore.RED))
-        return
-
-    print(ctext("Reloading YOLO models...", color=Fore.GREEN))
-    heinsight_obj = None
-    loaded_ok = load_heinsight_models()
-    if loaded_ok:
-        print(ctext("Models reloaded successfully.", color=Fore.GREEN))
-    else:
-        print(ctext("Failed to reload models.", color=Fore.RED))
-
-
-def handle_display_config():
-    """
-    Print current configuration, color-coded.
-    """
-    global advanced_overlay, auto_open_output, side_by_side
-    global annotation_font_scale, show_top_left_list, show_color_patch
-    global debounce_enabled, thresholds, input_file, output_dir, heinsight_obj, heinsight_dir
-
-    print(ctext("\n=== Current Configuration ===", color=Fore.CYAN, style=Style.BRIGHT))
-    # HeinSight availability
-    if heinsight_module_available:
-        print(ctext("HeinSight Import: AVAILABLE", color=Fore.GREEN))
-    else:
-        print(ctext("HeinSight Import: NOT AVAILABLE", color=Fore.RED))
-
-    print(f"HeinSight Directory: {heinsight_dir if heinsight_dir else '(none)'}")
-
-    if heinsight_obj is None:
-        print(ctext("YOLO Models: Not loaded or reloading needed.", color=Fore.RED))
-    else:
-        print(ctext("YOLO Models: Loaded", color=Fore.GREEN))
-
-    if thresholds is None:
-        print("Thresholds: (none) => all T/C/V displayed")
-    else:
-        print(f"Thresholds: {thresholds}")
-
-    print(f"Input File: {input_file if input_file else '(none)'}")
-    print(f"Output Dir: {output_dir if output_dir else '(none)'}")
-
-    print(f"Advanced Overlay: {'ON' if advanced_overlay else 'OFF'}")
-    print(f"Auto-Open Output: {'ON' if auto_open_output else 'OFF'}")
-    print(f"Side-by-Side Output: {'ON' if side_by_side else 'OFF'}")
-    print(f"Annotation Font Scale: {annotation_font_scale}")
-    print(f"Top-Left List: {'ON' if show_top_left_list else 'OFF'}")
-    print(f"Color Patch for Hue: {'ON' if show_color_patch else 'OFF'}")
-    print(f"Debouncing for T/C/V: {'ON' if debounce_enabled else 'OFF'}")
-
-    # Per-class toggles
-    print(ctext("\n--- Class Label Visibility ---", color=Fore.CYAN))
-    print(f"Vessel: {'ON' if show_label_vessel else 'OFF'}")
-    print(f"Solid: {'ON' if show_label_solid else 'OFF'}")
-    print(f"Residue: {'ON' if show_label_residue else 'OFF'}")
-    print(f"Empty: {'ON' if show_label_empty else 'OFF'}")
-    print(f"Homo: {'ON' if show_label_homo else 'OFF'}")
-    print(f"Hetero: {'ON' if show_label_hetero else 'OFF'}")
-
-    # Per-metric toggles
-    print(ctext("--- Metric Visibility (T/C/V) ---", color=Fore.CYAN))
-    print(f"Turbidity (T): {'ON' if show_metric_t else 'OFF'}")
-    print(f"Color/Hue (C): {'ON' if show_metric_c else 'OFF'}")
-    print(f"Volume Fraction (V): {'ON' if show_metric_v else 'OFF'}")
-
-    print(ctext("================================", color=Fore.CYAN))
-
-
-# =============================================================================
-#   FILE VIEWER UTILITY
-# =============================================================================
-
-def open_file_in_viewer(filepath):
-    """
-    Attempts to open the given file in the default system viewer.
-    """
-    print(ctext(f"Opening file in viewer: {filepath}", color=Fore.CYAN))
-    if not os.path.isfile(filepath):
-        print(ctext(f"Cannot open. File does not exist: {filepath}", color=Fore.RED))
-        return
-
-    if os.name == "nt":
-        os.startfile(filepath)
-    else:
-        try:
-            opener = "open" if sys.platform == "darwin" else "xdg-open"
-            subprocess.run([opener, filepath])
-        except Exception as e:
-            print(ctext(f"Failed to open: {e}", color=Fore.RED))
-
-
-# =============================================================================
-#   ATTEMPT IMPORT heinsight
-# =============================================================================
-
-import importlib.util
-
-def attempt_import_heinsight():
-    """
-    Attempt to load 'HeinSight' from the file heinsight.py inside the user-chosen 'heinsight_dir'.
-    We bypass normal package imports, so no __init__.py is needed.
-    """
-    global heinsight_module_available, HeinSight, heinsight_dir
-
-    if not heinsight_dir:
-        print(ctext("No heinsight_dir is set. Cannot import heinsight.py.", color=Fore.RED))
-        heinsight_module_available = False
-        HeinSight = None
-        return
-
-    heinsight_py = os.path.join(heinsight_dir, "heinsight.py")
-    if not os.path.isfile(heinsight_py):
-        print(ctext(f"Could not find heinsight.py at: {heinsight_py}", color=Fore.RED))
-        heinsight_module_available = False
-        HeinSight = None
-        return
-
-    try:
-        spec = importlib.util.spec_from_file_location("heinsight_module", heinsight_py)
-        heinsight_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(heinsight_module)
-
-        # Now pull out the HeinSight class
-        HeinSight = heinsight_module.HeinSight
-        heinsight_module_available = True
-        print(ctext("HeinSight import (via direct file load) successful.", color=Fore.GREEN))
-
-    except Exception as e:
-        print(ctext("ERROR: Could not load HeinSight from heinsight.py.", color=Fore.RED))
-        print(ctext(f"Details: {e}", color=Fore.YELLOW))
-        heinsight_module_available = False
-        HeinSight = None
-
-
 # =============================================================================
 #   LOAD HEINSIGHT MODELS
 # =============================================================================
 
 def load_heinsight_models():
-    """
-    Creates a HeinSight instance with YOLO models loaded, storing in global heinsight_obj.
-    We assume the user has chosen `heinsight_dir`. Models are expected at:
-        heinsight_dir/models/best_vessel.pt
-        heinsight_dir/models/best_content.pt
-    Returns True if loaded, False if errors occur.
-    """
     global heinsight_obj, heinsight_module_available, HeinSight, heinsight_dir
     if not heinsight_module_available or HeinSight is None:
         print(ctext("ERROR: 'heinsight' not imported, cannot load YOLO models.", color=Fore.RED))
@@ -704,7 +571,6 @@ def load_heinsight_models():
 
     try:
         print(ctext("Loading YOLO models from HeinSight...", color=Fore.GREEN))
-
         vessel_path = os.path.join(heinsight_dir, "models", "best_vessel.pt")
         content_path = os.path.join(heinsight_dir, "models", "best_content.pt")
 
@@ -723,13 +589,12 @@ def load_heinsight_models():
 #   IMAGE / VIDEO PROCESSING
 # =============================================================================
 
+last_frame_bboxes = []
+debounce_map = {}
+
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
+
 def process_image(file_path, out_path, h_obj, thr):
-    """
-    Read image, run detection => produce annotated frame.
-    If side_by_side is True, final output has [original|annotated].
-    If show_top_left_list is True, we overlay bounding-box strings.
-    Debouncing doesn't practically apply to a single image (only one frame).
-    """
     frame = cv2.imread(file_path)
     if frame is None:
         print(ctext(f"ERROR: Could not read image: {file_path}", color=Fore.RED))
@@ -751,10 +616,6 @@ def process_image(file_path, out_path, h_obj, thr):
 
 
 def process_video(file_path, out_path, h_obj, thr):
-    """
-    Open video, read frames, do detection => side_by_side => top_left_list => write.
-    Debouncing applies across frames for T/C/V.
-    """
     global debounce_map
     debounce_map.clear()  # start fresh for this video
 
@@ -768,7 +629,6 @@ def process_video(file_path, out_path, h_obj, thr):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # If side_by_side, we double the width
     out_width = width * 2 if side_by_side else width
     out_height = height
 
@@ -803,12 +663,6 @@ def process_video(file_path, out_path, h_obj, thr):
 
 
 def run_detection_on_frame(frame, h_obj, thr):
-    """
-    Vessel => content detection. Possibly measure T/C/V if advanced_overlay is ON.
-    Debouncing if 'debounce_enabled' is True (3-frame rule).
-    Returns annotated frame or None if no vessel found.
-    last_frame_bboxes is updated with bounding-box text lines.
-    """
     global last_frame_bboxes
     last_frame_bboxes = []
 
@@ -829,9 +683,9 @@ def run_detection_on_frame(frame, h_obj, thr):
     for vbox in v_boxes:
         x1v, y1v, x2v, y2v, confv, vessel_label = parse_box_info(vbox, h_obj.vial_model.names)
 
-        # Check if user has hidden "vessel"
+        # Check if user toggled vessel off
         if vessel_label.lower() == "vessel" and not show_label_vessel:
-            pass  # skip drawing
+            pass
         else:
             x1v, x2v = sorted([max(0, min(w, x1v)), max(0, min(w, x2v))])
             y1v, y2v = sorted([max(0, min(h, y1v)), max(0, min(h, y2v))])
@@ -848,7 +702,6 @@ def run_detection_on_frame(frame, h_obj, thr):
 
         for cbox in c_boxes:
             x1c, y1c, x2c, y2c, confc, label_c = parse_box_info(cbox, h_obj.contents_model.names)
-            # offset
             x1c += x1v
             x2c += x1v
             y1c += y1v
@@ -856,12 +709,13 @@ def run_detection_on_frame(frame, h_obj, thr):
             x1c, x2c = sorted([max(0, min(w, x1c)), max(0, min(w, x2c))])
             y1c, y2c = sorted([max(0, min(h, y1c)), max(0, min(h, y2c))])
 
+            # skip if user toggled label off
             if not class_label_is_visible(label_c):
                 continue
 
             c_txt = f"{label_c} {confc:.2f}"
 
-            # measure T/C/V if advanced_overlay and it's a liquid
+            # measure T/C/V if advanced_overlay & it's a "homo"/"hetero"
             if advanced_overlay and is_liquid_label(label_c):
                 measure_str = measure_liquid_overlay(annotated, x1c, y1c, x2c, y2c, h, thr)
                 if measure_str:
@@ -869,7 +723,7 @@ def run_detection_on_frame(frame, h_obj, thr):
 
             all_boxes.append((x1c, y1c, x2c, y2c, c_txt))
 
-    # draw bounding boxes
+    # Draw bounding boxes
     font_scale = annotation_font_scale
     for (bx1, by1, bx2, by2, text_label) in all_boxes:
         color = (0, 255, 255) if "vessel" in text_label.lower() else (0, 0, 255)
@@ -877,15 +731,11 @@ def run_detection_on_frame(frame, h_obj, thr):
         cv2.putText(annotated, text_label, (int(bx1), max(int(by1)-5, 15)),
                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, 2)
 
-    # For top-left overlay
     last_frame_bboxes = [b[4] for b in all_boxes]
     return annotated
 
 
 def parse_box_info(box, class_names):
-    """
-    Convert YOLO box to (x1, y1, x2, y2, conf, label).
-    """
     arr = box.xyxy[0].cpu().numpy()
     x1, y1, x2, y2 = map(int, arr[:4])
     conf = float(box.conf[0])
@@ -895,9 +745,6 @@ def parse_box_info(box, class_names):
 
 
 def class_label_is_visible(label_name):
-    """
-    Checks if the user wants to show bounding box/label for the given class.
-    """
     lbl = label_name.lower()
     if "vessel" in lbl:
         return show_label_vessel
@@ -911,24 +758,14 @@ def class_label_is_visible(label_name):
         return show_label_homo
     elif "hetero" in lbl:
         return show_label_hetero
-    # default True for any unknown classes
     return True
 
 
 def is_liquid_label(label):
-    """
-    Return True if label is "Homo..." or "Hetero..."
-    """
     return label.lower().startswith("homo") or label.lower().startswith("hetero")
 
 
 def measure_liquid_overlay(frame, x1, y1, x2, y2, full_height, thr):
-    """
-    If thr=None => no threshold gating. If thr is set, only show if >= thresholds.
-    Handle debouncing if 'debounce_enabled' is True with a 3-frame rule.
-    T/C/V can each be individually toggled (show_metric_t, show_metric_c, show_metric_v).
-    If show_color_patch is True, we draw a color patch for hue.
-    """
     cropped = frame[int(y1):int(y2), int(x1):int(x2)]
     if cropped.size == 0:
         return ""
@@ -942,6 +779,7 @@ def measure_liquid_overlay(frame, x1, y1, x2, y2, full_height, thr):
     if show_color_patch:
         draw_color_patch(frame, int(x2), int(y1), avg_hue)
 
+    # thresholds if any
     min_turb, min_col, min_vol = 0, 0, 0
     if thr:
         min_turb, min_col, min_vol, _ = thr
@@ -950,11 +788,11 @@ def measure_liquid_overlay(frame, x1, y1, x2, y2, full_height, thr):
     do_show_c = (advanced_overlay and show_metric_c and (avg_hue >= min_col))
     do_show_v = (advanced_overlay and show_metric_v and (vol_frac >= min_vol))
 
-    # If debouncing is OFF, show directly
+    # If no debouncing, just build text
     if not debounce_enabled:
         return build_label_str(avg_val, avg_hue, vol_frac, do_show_t, do_show_c, do_show_v)
 
-    # Debouncing is ON => 3-frame rule
+    # Debouncing with 3-frame rule
     box_key = f"{x1}:{y1}:{x2}:{y2}"
     if box_key not in debounce_map:
         debounce_map[box_key] = {
@@ -963,8 +801,11 @@ def measure_liquid_overlay(frame, x1, y1, x2, y2, full_height, thr):
             'V': {'last_val': 0.0, 'zero_count': 3},
         }
 
-    # Update T
     entry_t = debounce_map[box_key]['T']
+    entry_c = debounce_map[box_key]['C']
+    entry_v = debounce_map[box_key]['V']
+
+    # T
     if do_show_t:
         entry_t['zero_count'] = 0
         entry_t['last_val'] = avg_val
@@ -973,8 +814,7 @@ def measure_liquid_overlay(frame, x1, y1, x2, y2, full_height, thr):
         if entry_t['zero_count'] >= 3:
             entry_t['last_val'] = 0.0
 
-    # Update C
-    entry_c = debounce_map[box_key]['C']
+    # C
     if do_show_c:
         entry_c['zero_count'] = 0
         entry_c['last_val'] = avg_hue
@@ -983,8 +823,7 @@ def measure_liquid_overlay(frame, x1, y1, x2, y2, full_height, thr):
         if entry_c['zero_count'] >= 3:
             entry_c['last_val'] = 0.0
 
-    # Update V
-    entry_v = debounce_map[box_key]['V']
+    # V
     if do_show_v:
         entry_v['zero_count'] = 0
         entry_v['last_val'] = vol_frac
@@ -993,7 +832,6 @@ def measure_liquid_overlay(frame, x1, y1, x2, y2, full_height, thr):
         if entry_v['zero_count'] >= 3:
             entry_v['last_val'] = 0.0
 
-    # Final values after debouncing
     t_val = entry_t['last_val']
     c_val = entry_c['last_val']
     v_val = entry_v['last_val']
@@ -1006,9 +844,6 @@ def measure_liquid_overlay(frame, x1, y1, x2, y2, full_height, thr):
 
 
 def build_label_str(turb, hue, vol, show_t, show_c, show_v):
-    """
-    Build the text string for measured turb/color/volume.
-    """
     parts = []
     if show_t:
         parts.append(f"T={turb:.1f}")
@@ -1016,14 +851,10 @@ def build_label_str(turb, hue, vol, show_t, show_c, show_v):
         parts.append(f"C={hue:.1f}")
     if show_v:
         parts.append(f"V={vol:.2f}")
-
     return ", ".join(parts)
 
 
 def draw_color_patch(frame, x_left, y_top, hue):
-    """
-    Draw small 20x20 patch approximating the hue color near (x_left, y_top).
-    """
     patch_size = 20
     color_hsv = np.uint8([[[hue, 255, 255]]])
     color_bgr = cv2.cvtColor(color_hsv, cv2.COLOR_HSV2BGR)
@@ -1035,21 +866,14 @@ def draw_color_patch(frame, x_left, y_top, hue):
 
 
 def combine_side_by_side(original, annotated):
-    """
-    Horizontally stack (original | annotated).
-    """
     h1, w1 = original.shape[:2]
     h2, w2 = annotated.shape[:2]
     if h1 != h2:
         annotated = cv2.resize(annotated, (w2, h1))
-    combined = np.hstack((original, annotated))
-    return combined
+    return np.hstack((original, annotated))
 
 
 def draw_top_left_list(frame, box_lines, font_scale):
-    """
-    Draw each bounding-box text line in the top-left corner.
-    """
     overlay = frame.copy()
     x, y = 10, 30
     for line in box_lines:
@@ -1060,9 +884,6 @@ def draw_top_left_list(frame, box_lines, font_scale):
 
 
 def progress_bar(current, total):
-    """
-    Simple ASCII progress bar for video frames.
-    """
     if total <= 0:
         return
     bar_len = 50
@@ -1072,5 +893,88 @@ def progress_bar(current, total):
     print(f"\rProcessing video frames: [{bar}] {current}/{total}", end="", flush=True)
 
 
+# =============================================================================
+#   DISPLAY CONFIG
+# =============================================================================
+
+def handle_display_config():
+    global advanced_overlay, auto_open_output, side_by_side
+    global annotation_font_scale, show_top_left_list, show_color_patch
+    global debounce_enabled, thresholds, input_file, output_dir, heinsight_obj, heinsight_dir
+
+    print(ctext("\n=== Current Configuration ===", color=Fore.CYAN, style=Style.BRIGHT))
+    if heinsight_module_available:
+        print(ctext("HeinSight Import: AVAILABLE", color=Fore.GREEN))
+    else:
+        print(ctext("HeinSight Import: NOT AVAILABLE", color=Fore.RED))
+
+    print(f"HeinSight Directory: {heinsight_dir if heinsight_dir else '(none)'}")
+
+    if heinsight_obj is None:
+        print(ctext("YOLO Models: Not loaded or reloading needed.", color=Fore.RED))
+    else:
+        print(ctext("YOLO Models: Loaded", color=Fore.GREEN))
+
+    if thresholds is None:
+        print("Thresholds: (none) => all T/C/V displayed")
+    else:
+        print(f"Thresholds: {thresholds}")
+
+    print(f"Input File: {input_file if input_file else '(none)'}")
+    print(f"Output Dir: {output_dir if output_dir else '(none)'}")
+
+    print(f"Advanced Overlay: {'ON' if advanced_overlay else 'OFF'}")
+    print(f"Auto-Open Output: {'ON' if auto_open_output else 'OFF'}")
+    print(f"Side-by-Side Output: {'ON' if side_by_side else 'OFF'}")
+    print(f"Annotation Font Scale: {annotation_font_scale}")
+    print(f"Top-Left List: {'ON' if show_top_left_list else 'OFF'}")
+    print(f"Color Patch for Hue: {'ON' if show_color_patch else 'OFF'}")
+    print(f"Debouncing for T/C/V: {'ON' if debounce_enabled else 'OFF'}")
+
+    print(ctext("\n--- Class Label Visibility ---", color=Fore.CYAN))
+    print(f"Vessel: {'ON' if show_label_vessel else 'OFF'}")
+    print(f"Solid: {'ON' if show_label_solid else 'OFF'}")
+    print(f"Residue: {'ON' if show_label_residue else 'OFF'}")
+    print(f"Empty: {'ON' if show_label_empty else 'OFF'}")
+    print(f"Homo: {'ON' if show_label_homo else 'OFF'}")
+    print(f"Hetero: {'ON' if show_label_hetero else 'OFF'}")
+
+    print(ctext("--- Metric Visibility (T/C/V) ---", color=Fore.CYAN))
+    print(f"Turbidity (T): {'ON' if show_metric_t else 'OFF'}")
+    print(f"Color/Hue (C): {'ON' if show_metric_c else 'OFF'}")
+    print(f"Volume Fraction (V): {'ON' if show_metric_v else 'OFF'}")
+
+    print(ctext("================================", color=Fore.CYAN))
+
+
+# =============================================================================
+#   FILE VIEWER UTILITY
+# =============================================================================
+
+def open_file_in_viewer(filepath):
+    print(ctext(f"Opening file in viewer: {filepath}", color=Fore.CYAN))
+    if not os.path.isfile(filepath):
+        print(ctext(f"Cannot open. File does not exist: {filepath}", color=Fore.RED))
+        return
+
+    if os.name == "nt":
+        os.startfile(filepath)
+    else:
+        try:
+            opener = "open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.run([opener, filepath])
+        except Exception as e:
+            print(ctext(f"Failed to open: {e}", color=Fore.RED))
+
+
+# =============================================================================
+#   LAUNCH
+# =============================================================================
+
 if __name__ == "__main__":
+    # 1) Force the user to pick the 'heinsight4.0' folder
+    enforce_heinsight_directory()
+    # 2) Attempt to import HeinSight
+    attempt_import_heinsight()
+    # 3) Enter main menu
     main()
