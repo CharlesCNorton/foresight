@@ -155,6 +155,9 @@ last_frame_bboxes = []
 # For debouncing T/C/V across frames in a video
 debounce_map = {}
 
+# --- ADDED FOR CPU-ONLY TOGGLE ---
+cpu_only_inference = False  # Whether to force CPU-only inference
+
 
 def main():
     """
@@ -164,9 +167,6 @@ def main():
     print(ctext("=== Foresight Terminal Menu ===", color=Fore.CYAN, style=Style.BRIGHT))
     print("Offers a line-based menu for controlling HeinSight detection with advanced overlays, "
           "side-by-side output, annotation font adjustments, T/C/V debouncing, per-class toggles, etc.\n")
-
-    # If we want to auto-attempt model loading right away, do so here
-    # Or we can wait for user to pick "Reload YOLO Models" from the menu
 
     while True:
         show_main_menu()
@@ -382,7 +382,9 @@ def submenu_heinsight_management():
         print(ctext("\n=== HeinSight Management ===", color=Fore.GREEN, style=Style.BRIGHT))
         print(ctext("1) ", color=Fore.YELLOW) + "Pick HeinSight Directory (for dynamic import)")
         print(ctext("2) ", color=Fore.YELLOW) + "Reload YOLO Models")
-        print(ctext("3) ", color=Fore.YELLOW) + "Return to Main Menu")
+        # --- ADDED FOR CPU-ONLY TOGGLE ---
+        print(ctext("3) ", color=Fore.YELLOW) + f"Toggle CPU Only Inference (currently: {'ON' if cpu_only_inference else 'OFF'})")
+        print(ctext("4) ", color=Fore.YELLOW) + "Return to Main Menu")
 
         choice = input(ctext("Enter your choice: ", color=Fore.YELLOW)).strip()
         if choice == "1":
@@ -390,9 +392,11 @@ def submenu_heinsight_management():
         elif choice == "2":
             handle_reload_models()
         elif choice == "3":
+            handle_toggle_cpu_only_inference()
+        elif choice == "4":
             break
         else:
-            print(ctext("Invalid choice (1-3).", color=Fore.RED))
+            print(ctext("Invalid choice (1-4).", color=Fore.RED))
 
 def handle_pick_heinsight_dir():
     """
@@ -443,6 +447,12 @@ def handle_reload_models():
         print(ctext("Models reloaded successfully.", color=Fore.GREEN))
     else:
         print(ctext("Failed to reload models.", color=Fore.RED))
+
+# --- ADDED FOR CPU-ONLY TOGGLE ---
+def handle_toggle_cpu_only_inference():
+    global cpu_only_inference
+    cpu_only_inference = not cpu_only_inference
+    print(ctext(f"CPU Only Inference is now {'ON' if cpu_only_inference else 'OFF'}.", color=Fore.GREEN))
 
 
 # =============================================================================
@@ -670,8 +680,17 @@ def run_detection_on_frame(frame, h_obj, thr):
     if thr is not None:
         conf_thr = thr[3]  # detection confidence
 
+    # --- ADDED FOR CPU-ONLY TOGGLE ---
+    # If cpu_only_inference is True, we pass device='cpu', otherwise 'cuda:0'
+    device_for_inference = 'cpu' if cpu_only_inference else 'cuda:0'
+
     # Vessel detection
-    v_preds = h_obj.vial_model.predict(frame, conf=conf_thr, verbose=False)
+    v_preds = h_obj.vial_model.predict(
+        frame,
+        conf=conf_thr,
+        verbose=False,
+        device=device_for_inference  # ensure CPU if toggled
+    )
     v_boxes = v_preds[0].boxes
     if len(v_boxes) == 0:
         return None
@@ -697,7 +716,12 @@ def run_detection_on_frame(frame, h_obj, thr):
         if vessel_crop.size == 0:
             continue
 
-        c_preds = h_obj.contents_model.predict(vessel_crop, conf=conf_thr, verbose=False)
+        c_preds = h_obj.contents_model.predict(
+            vessel_crop,
+            conf=conf_thr,
+            verbose=False,
+            device=device_for_inference  # ensure CPU if toggled
+        )
         c_boxes = c_preds[0].boxes
 
         for cbox in c_boxes:
@@ -901,6 +925,8 @@ def handle_display_config():
     global advanced_overlay, auto_open_output, side_by_side
     global annotation_font_scale, show_top_left_list, show_color_patch
     global debounce_enabled, thresholds, input_file, output_dir, heinsight_obj, heinsight_dir
+    # --- ADDED FOR CPU-ONLY TOGGLE ---
+    global cpu_only_inference
 
     print(ctext("\n=== Current Configuration ===", color=Fore.CYAN, style=Style.BRIGHT))
     if heinsight_module_available:
@@ -930,6 +956,9 @@ def handle_display_config():
     print(f"Top-Left List: {'ON' if show_top_left_list else 'OFF'}")
     print(f"Color Patch for Hue: {'ON' if show_color_patch else 'OFF'}")
     print(f"Debouncing for T/C/V: {'ON' if debounce_enabled else 'OFF'}")
+
+    # --- ADDED FOR CPU-ONLY TOGGLE ---
+    print(f"CPU Only Inference: {'ON' if cpu_only_inference else 'OFF'}")
 
     print(ctext("\n--- Class Label Visibility ---", color=Fore.CYAN))
     print(f"Vessel: {'ON' if show_label_vessel else 'OFF'}")
